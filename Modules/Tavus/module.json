@@ -1,0 +1,11 @@
+{
+    "name": "Tavus",
+    "alias": "tavus",
+    "description": "Tavus AI Video Integration for personalized video experiences",
+    "keywords": ["tavus", "ai-video", "personalized-video", "conversational-ai"],
+    "priority": 10,
+    "providers": [
+        "Modules\\Tavus\\Providers\\TavusServiceProvider"
+    ],
+    "files": []
+}

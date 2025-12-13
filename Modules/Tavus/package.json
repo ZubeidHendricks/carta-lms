@@ -1,0 +1,10 @@
+{
+  "name": "@modules/tavus",
+  "version": "1.0.0",
+  "description": "Tavus AI Video Integration Module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  }
+}

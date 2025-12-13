@@ -1,0 +1,17 @@
+{
+    "name": "modules/tavus",
+    "description": "Tavus AI Video Integration Module",
+    "type": "laravel-module",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "guzzlehttp/guzzle": "^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Tavus\\": "app/",
+            "Modules\\Tavus\\Database\\Factories\\": "database/factories/",
+            "Modules\\Tavus\\Database\\Seeders\\": "database/seeders/"
+        }
+    }
+}

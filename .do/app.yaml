@@ -1,0 +1,76 @@
+name: mentor-lms
+region: nyc
+services:
+  - name: web
+    dockerfile_path: Dockerfile
+    source_dir: /
+    http_port: 80
+    instance_count: 1
+    instance_size_slug: professional-xs
+    routes:
+      - path: /
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 30
+      period_seconds: 60
+      timeout_seconds: 10
+    envs:
+      - key: APP_NAME
+        value: "Mentor LMS"
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_URL
+        value: "${APP_URL}"
+        scope: RUN_AND_BUILD_TIME
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        value: "${db.HOSTNAME}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: DB_PORT
+        value: "${db.PORT}"
+        scope: RUN_TIME
+      - key: DB_DATABASE
+        value: "${db.DATABASE}"
+        scope: RUN_TIME
+      - key: DB_USERNAME
+        value: "${db.USERNAME}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: DB_PASSWORD
+        value: "${db.PASSWORD}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: APP_KEY
+        value: ""
+        type: SECRET
+      - key: CACHE_DRIVER
+        value: redis
+      - key: QUEUE_CONNECTION
+        value: redis
+      - key: SESSION_DRIVER
+        value: redis
+      - key: REDIS_HOST
+        value: "${redis.HOSTNAME}"
+        scope: RUN_TIME
+      - key: REDIS_PASSWORD
+        value: "${redis.PASSWORD}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: REDIS_PORT
+        value: "${redis.PORT}"
+        scope: RUN_TIME
+
+databases:
+  - name: db
+    engine: MYSQL
+    version: "8"
+    production: false
+    cluster_name: mentor-lms-db
+
+  - name: redis
+    engine: REDIS
+    production: false
