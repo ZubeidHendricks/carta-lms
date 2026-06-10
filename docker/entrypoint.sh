@@ -8,14 +8,18 @@
 ###############################################################################
 set -e
 
-cd /var/www/html 2>/dev/null || cd /app
+# The application lives in /app (Dockerfile WORKDIR). Be explicit — the base
+# image also ships an empty /var/www/html which must NOT be used.
+cd /app
 
 # Ensure writable runtime directories exist (defensive on fresh containers).
 mkdir -p storage/framework/cache storage/framework/sessions \
          storage/framework/views storage/logs bootstrap/cache
 
 # Build config cache first so the rest of the boot reflects the real env.
-php artisan config:cache
+# Kept non-fatal so a transient hiccup can't stop the container from starting
+# (Octane below is what determines liveness).
+php artisan config:cache || echo "[entrypoint] config:cache failed"
 
 # First-run/idempotent provisioning: migrate (+ seed on empty DB) and ensure the
 # admin user exists. Safe to run on every boot while instance_count=1. Kept
