@@ -28,29 +28,16 @@ export default defineConfig({
             '@tavus/cvi-ui/dist/style.css',
          ],
          output: {
+            // NOTE: keep this minimal. Aggressively forcing every node_module
+            // into named chunks creates cross-chunk import cycles that surface
+            // at runtime as "Cannot access 'X' before initialization" (TDZ) and
+            // a blank page. Let Vite auto-split everything else.
             manualChunks(id) {
-               if (!id.includes('node_modules')) {
-                  // App pages stay as individual lazy chunks (import.meta.glob).
-                  return;
+               if (id.includes('node_modules')) {
+                  if (id.includes('@tavus')) {
+                     return 'tavus';
+                  }
                }
-
-               // Peel the heaviest libraries into their own cacheable chunks so
-               // they are only fetched on the routes that actually use them and
-               // don't bloat the initial payload.
-               if (id.includes('@tavus')) return 'tavus';
-               if (id.includes('@zoom')) return 'zoom';
-               if (id.includes('codemirror')) return 'codemirror';
-               if (id.includes('recharts') || id.includes('d3-')) return 'charts';
-               if (id.includes('plyr')) return 'player';
-               if (id.includes('jspdf') || id.includes('puppeteer')) return 'pdf';
-               if (id.includes('@radix-ui') || id.includes('lucide-react')) return 'ui';
-
-               // Core framework — shared by every page, loaded up front.
-               if (id.includes('react') || id.includes('@inertiajs') || id.includes('scheduler')) {
-                  return 'vendor';
-               }
-
-               return 'libs';
             },
          },
       },
