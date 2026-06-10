@@ -55,26 +55,23 @@ WORKDIR /app
 COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/zz-opcache.ini
 COPY docker/php/app.ini      /usr/local/etc/php/conf.d/zz-app.ini
 
-# --- Composer install -------------------------------------------------------
-# Copy the manifests first for layer caching, then add Laravel Octane on top of
-# the committed lock (only octane + its deps are resolved, everything else stays
-# pinned). Scripts are deferred until the full source is present.
-COPY composer.json composer.lock ./
+# --- Application source ------------------------------------------------------
+# The whole repo (incl. Modules/) must be present BEFORE Composer runs so the
+# composer-merge-plugin can register each module's PSR-4 autoload. Octane is
+# layered on top of the committed lock; every other package stays pinned.
+COPY . .
+
+# Baseline .env (real App Platform env vars override these at runtime).
+RUN [ -f .env ] || cp docker.env .env
+
+# Resolve dependencies (adds Octane, merges module autoloads via the plugin).
 RUN composer update laravel/octane --with-dependencies \
         --no-dev --prefer-dist --no-scripts --optimize-autoloader \
     || composer update --no-dev --prefer-dist --no-scripts --optimize-autoloader
 
-# --- Application source ------------------------------------------------------
-COPY . .
-
-# Provide a baseline .env (real App Platform env vars override these at runtime)
-# and ensure an APP_KEY exists so build-time artisan calls succeed.
-RUN { [ -f .env ] || cp docker.env .env; } \
-    && { grep -q "APP_KEY=base64:" .env || php artisan key:generate --force; }
-
-# Finish Composer setup now that the whole app (incl. Modules) is present.
-RUN composer dump-autoload --no-dev --optimize \
-    && php artisan package:discover --ansi
+# Throwaway build-time key (real APP_KEY injected at runtime) + package discovery.
+RUN php artisan key:generate --force --ansi
+RUN php artisan package:discover --ansi
 
 # Pull in the compiled frontend bundle from the Node stage.
 COPY --from=assets /app/public/build ./public/build
