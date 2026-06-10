@@ -118,9 +118,9 @@ const TalentLanding = () => {
                         </Link>
                      </Button>
                      <Button asChild size="lg" variant="outline" className="h-12 px-7 text-base">
-                        <Link href="/courses">
-                           <PlayCircle className="h-4 w-4" /> Explore courses
-                        </Link>
+                        <a href="#features">
+                           <PlayCircle className="h-4 w-4" /> See how it works
+                        </a>
                      </Button>
                   </div>
 
@@ -219,7 +219,7 @@ const TalentLanding = () => {
          </section>
 
          {/* ================= FEATURES ================= */}
-         <section className="mx-auto max-w-7xl px-4 py-16">
+         <section id="features" className="mx-auto max-w-7xl px-4 py-16">
             <div className="mx-auto max-w-2xl text-center">
                <span className="text-sm font-semibold tracking-wide text-primary uppercase">Everything you need</span>
                <h2 className="mt-3 text-3xl font-bold tracking-tight md:text-4xl">One platform for all your training</h2>
