@@ -29,22 +29,28 @@ export default defineConfig({
          ],
          output: {
             manualChunks(id) {
-               // Vendor libraries
-               if (id.includes('node_modules')) {
-                  if (id.includes('react') || id.includes('@inertiajs')) {
-                     return 'vendor';
-                  }
-                  // Separate Tavus to avoid build issues
-                  if (id.includes('@tavus')) {
-                     return 'tavus';
-                  }
+               if (!id.includes('node_modules')) {
+                  // App pages stay as individual lazy chunks (import.meta.glob).
+                  return;
                }
 
-               // // Only chunk large directories, not intro pages
-               // if (id.includes('/pages/dashboard/')) {
-               //    return 'pages-dashboard';
-               // }
-               // Let intro and inner pages remain as individual files
+               // Peel the heaviest libraries into their own cacheable chunks so
+               // they are only fetched on the routes that actually use them and
+               // don't bloat the initial payload.
+               if (id.includes('@tavus')) return 'tavus';
+               if (id.includes('@zoom')) return 'zoom';
+               if (id.includes('codemirror')) return 'codemirror';
+               if (id.includes('recharts') || id.includes('d3-')) return 'charts';
+               if (id.includes('plyr')) return 'player';
+               if (id.includes('jspdf') || id.includes('puppeteer')) return 'pdf';
+               if (id.includes('@radix-ui') || id.includes('lucide-react')) return 'ui';
+
+               // Core framework — shared by every page, loaded up front.
+               if (id.includes('react') || id.includes('@inertiajs') || id.includes('scheduler')) {
+                  return 'vendor';
+               }
+
+               return 'libs';
             },
          },
       },

@@ -1,76 +1,70 @@
+# DigitalOcean App Platform spec — Mentor / Carter LMS
+#
+# Runtime: FrankenPHP + Laravel Octane (see Dockerfile).
+# Region:  fra (Frankfurt).
+#
+# NOTE: Secret values (APP_KEY, DB_PASSWORD, REDIS_PASSWORD, ADMIN_PASSWORD) are
+# intentionally left blank here and are injected at deploy time. Fill them in
+# before running `doctl apps create --spec .do/app.yaml`, or manage them in the
+# App Platform dashboard. The managed MySQL (8.4) and Valkey (8) clusters live
+# in fra1 and are reached over TLS using the env vars below.
 name: mentor-lms
-region: nyc
+region: fra
+
 services:
   - name: web
+    git:
+      repo_clone_url: https://github.com/ZubeidHendricks/carta-lms.git
+      branch: main
     dockerfile_path: Dockerfile
     source_dir: /
-    http_port: 80
+    http_port: 8080
     instance_count: 1
     instance_size_slug: professional-xs
-    routes:
-      - path: /
     health_check:
-      http_path: /health
-      initial_delay_seconds: 30
-      period_seconds: 60
-      timeout_seconds: 10
+      http_path: /up
+      initial_delay_seconds: 40
+      period_seconds: 15
+      timeout_seconds: 5
+      failure_threshold: 5
     envs:
-      - key: APP_NAME
-        value: "Mentor LMS"
-      - key: APP_ENV
-        value: production
-      - key: APP_DEBUG
-        value: "false"
-      - key: APP_URL
-        value: "${APP_URL}"
-        scope: RUN_AND_BUILD_TIME
-      - key: DB_CONNECTION
-        value: mysql
-      - key: DB_HOST
-        value: "${db.HOSTNAME}"
-        scope: RUN_TIME
-        type: SECRET
-      - key: DB_PORT
-        value: "${db.PORT}"
-        scope: RUN_TIME
-      - key: DB_DATABASE
-        value: "${db.DATABASE}"
-        scope: RUN_TIME
-      - key: DB_USERNAME
-        value: "${db.USERNAME}"
-        scope: RUN_TIME
-        type: SECRET
-      - key: DB_PASSWORD
-        value: "${db.PASSWORD}"
-        scope: RUN_TIME
-        type: SECRET
-      - key: APP_KEY
-        value: ""
-        type: SECRET
-      - key: CACHE_DRIVER
-        value: redis
-      - key: QUEUE_CONNECTION
-        value: redis
-      - key: SESSION_DRIVER
-        value: redis
-      - key: REDIS_HOST
-        value: "${redis.HOSTNAME}"
-        scope: RUN_TIME
-      - key: REDIS_PASSWORD
-        value: "${redis.PASSWORD}"
-        scope: RUN_TIME
-        type: SECRET
-      - key: REDIS_PORT
-        value: "${redis.PORT}"
-        scope: RUN_TIME
-
-databases:
-  - name: db
-    engine: MYSQL
-    version: "8"
-    production: false
-    cluster_name: mentor-lms-db
-
-  - name: redis
-    engine: REDIS
-    production: false
+      # --- App -------------------------------------------------------------
+      - { key: APP_NAME, value: "Carter LMS", scope: RUN_AND_BUILD_TIME }
+      - { key: APP_ENV, value: production, scope: RUN_AND_BUILD_TIME }
+      - { key: APP_DEBUG, value: "false", scope: RUN_AND_BUILD_TIME }
+      - { key: APP_URL, value: "${APP_URL}", scope: RUN_AND_BUILD_TIME }
+      - { key: APP_TIMEZONE, value: UTC, scope: RUN_TIME }
+      - { key: APP_KEY, value: "", type: SECRET, scope: RUN_AND_BUILD_TIME }
+      - { key: LOG_CHANNEL, value: stderr, scope: RUN_TIME }
+      - { key: LOG_LEVEL, value: error, scope: RUN_TIME }
+      # --- Octane ----------------------------------------------------------
+      - { key: OCTANE_SERVER, value: frankenphp, scope: RUN_TIME }
+      - { key: OCTANE_WORKERS, value: "auto", scope: RUN_TIME }
+      - { key: OCTANE_MAX_REQUESTS, value: "512", scope: RUN_TIME }
+      # --- Database (managed MySQL 8.4, fra1, TLS) -------------------------
+      - { key: DB_CONNECTION, value: mysql, scope: RUN_TIME }
+      - { key: DB_HOST, value: mentor-lms-mysql-do-user-35795027-0.f.db.ondigitalocean.com, scope: RUN_TIME }
+      - { key: DB_PORT, value: "25060", scope: RUN_TIME }
+      - { key: DB_DATABASE, value: defaultdb, scope: RUN_TIME }
+      - { key: DB_USERNAME, value: doadmin, scope: RUN_TIME }
+      - { key: DB_PASSWORD, value: "", type: SECRET, scope: RUN_TIME }
+      - { key: MYSQL_ATTR_SSL_VERIFY, value: "false", scope: RUN_TIME }
+      # --- Cache / Queue / Session (managed Valkey 8, fra1, TLS) -----------
+      - { key: REDIS_CLIENT, value: phpredis, scope: RUN_TIME }
+      - { key: REDIS_HOST, value: mentor-lms-valkey-do-user-35795027-0.f.db.ondigitalocean.com, scope: RUN_TIME }
+      - { key: REDIS_PORT, value: "25061", scope: RUN_TIME }
+      - { key: REDIS_PASSWORD, value: "", type: SECRET, scope: RUN_TIME }
+      - { key: REDIS_SCHEME, value: tls, scope: RUN_TIME }
+      - { key: CACHE_STORE, value: redis, scope: RUN_TIME }
+      - { key: SESSION_DRIVER, value: redis, scope: RUN_TIME }
+      - { key: SESSION_LIFETIME, value: "120", scope: RUN_TIME }
+      - { key: QUEUE_CONNECTION, value: sync, scope: RUN_TIME }
+      # --- Installer bypass + headless provisioning -----------------------
+      - { key: MENTOR_INSTALLED, value: "true", scope: RUN_TIME }
+      - { key: ADMIN_NAME, value: "Zubeid Hendricks", scope: RUN_TIME }
+      - { key: ADMIN_EMAIL, value: "zubeid.hendricks@gmail.com", scope: RUN_TIME }
+      - { key: ADMIN_PASSWORD, value: "", type: SECRET, scope: RUN_TIME }
+      - { key: COURSE_CREATION, value: administrative, scope: RUN_TIME }
+      # --- Filesystem (see note: move media to DO Spaces for persistence) --
+      - { key: FILESYSTEM_DISK, value: local, scope: RUN_TIME }
+      - { key: MEDIA_DISK, value: public, scope: RUN_TIME }

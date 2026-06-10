@@ -57,9 +57,14 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // DigitalOcean Managed MySQL requires an encrypted (SSL) connection.
+            // MYSQL_ATTR_SSL_VERIFY_SERVER_CERT=false enables TLS without strict
+            // CA/hostname verification (needed over the VPC private host). Set
+            // MYSQL_ATTR_SSL_CA to additionally pin the DO CA certificate.
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
+                PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => env('MYSQL_ATTR_SSL_VERIFY', false),
+            ], fn ($value) => ! is_null($value)) : [],
         ],
 
         'mariadb' => [
@@ -151,22 +156,33 @@ return [
             'persistent' => env('REDIS_PERSISTENT', false),
         ],
 
+        // DigitalOcean Managed Valkey/Redis requires TLS (rediss://). Set
+        // REDIS_SCHEME=tls to connect securely; verify_peer is relaxed because
+        // the managed cert is issued for the cluster, not the private host.
         'default' => [
+            'scheme' => env('REDIS_SCHEME', 'tcp'),
             'url' => env('REDIS_URL'),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_DB', '0'),
+            'ssl' => env('REDIS_SCHEME', 'tcp') === 'tls'
+                ? ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true]
+                : null,
         ],
 
         'cache' => [
+            'scheme' => env('REDIS_SCHEME', 'tcp'),
             'url' => env('REDIS_URL'),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_CACHE_DB', '1'),
+            'ssl' => env('REDIS_SCHEME', 'tcp') === 'tls'
+                ? ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true]
+                : null,
         ],
 
     ],

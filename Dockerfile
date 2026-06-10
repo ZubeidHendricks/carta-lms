@@ -1,160 +1,101 @@
-# Multi-stage Dockerfile for Laravel Mentor LMS
-FROM node:22-alpine AS node-builder
+# syntax=docker/dockerfile:1
+###############################################################################
+# Mentor LMS — production image
+#
+# Runtime:  FrankenPHP + Laravel Octane (persistent workers — the framework is
+#           booted once per worker instead of on every request).
+# Frontend: Vite assets are compiled in an isolated Node stage and copied in.
+# Speed:    OPcache + JIT, optimized autoloader, and config/route/view/event
+#           caches are built at container start (once env is present).
+###############################################################################
 
-# Set working directory
+# ----------------------------------------------------------------------------
+# Stage 1 — Build the React/Inertia assets with Vite
+# ----------------------------------------------------------------------------
+FROM node:22-alpine AS assets
+
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Install JS deps first so this layer is cached unless the lockfile changes.
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
-# Install Node dependencies (including dev dependencies for build)
-RUN npm ci
-
-# Copy all source files for build (Vite may need access to various files)
+# Build the production bundle (code-split, hashed, minified).
 COPY . .
-
-# Build assets
 RUN npm run build
 
-# PHP Stage
-FROM php:8.3-fpm-alpine AS php-base
 
-# Install system dependencies
-RUN apk add --no-cache \
-    bash \
-    curl \
-    freetype-dev \
-    g++ \
-    gcc \
-    git \
-    icu-dev \
-    jpeg-dev \
-    libpng-dev \
-    libzip-dev \
-    make \
-    mysql-client \
-    nginx \
-    oniguruma-dev \
-    redis \
-    supervisor \
-    unzip \
-    zip \
-    autoconf \
-    pkgconf \
-    linux-headers \
-    openssl \
-    ca-certificates
+# ----------------------------------------------------------------------------
+# Stage 2 — PHP runtime (FrankenPHP) + Composer dependencies
+# ----------------------------------------------------------------------------
+FROM dunglas/frankenphp:1-php8.3 AS app
 
-# Install PHP extensions
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j$(nproc) \
-        bcmath \
-        exif \
+# install-php-extensions ships with the FrankenPHP image.
+RUN install-php-extensions \
+        pdo_mysql \
         gd \
         intl \
-        mbstring \
+        bcmath \
+        exif \
         opcache \
         pcntl \
-        pdo \
-        pdo_mysql \
-        zip
+        zip \
+        redis
 
-# Install Redis extension with proper configuration
-RUN pecl config-set php_ini /usr/local/etc/php/php.ini \
-    && pecl install redis \
-    && docker-php-ext-enable redis
+# Bring in Composer from the official image.
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Install Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+ENV COMPOSER_ALLOW_SUPERUSER=1 \
+    COMPOSER_NO_INTERACTION=1 \
+    COMPOSER_MEMORY_LIMIT=-1
 
-# Set working directory
-WORKDIR /var/www/html
+WORKDIR /app
 
-# Copy PHP configuration
-COPY docker/php/php.ini /usr/local/etc/php/conf.d/99-custom.ini
-COPY docker/php/php-fpm.conf /usr/local/etc/php-fpm.d/www.conf
+# Performance-tuned PHP/OPcache config.
+COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/zz-opcache.ini
+COPY docker/php/app.ini      /usr/local/etc/php/conf.d/zz-app.ini
 
-# Copy Nginx configuration
-COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
-COPY docker/nginx/default.conf /etc/nginx/http.d/default.conf
+# --- Composer install -------------------------------------------------------
+# Copy the manifests first for layer caching, then add Laravel Octane on top of
+# the committed lock (only octane + its deps are resolved, everything else stays
+# pinned). Scripts are deferred until the full source is present.
+COPY composer.json composer.lock ./
+RUN composer update laravel/octane --with-dependencies \
+        --no-dev --prefer-dist --no-scripts --optimize-autoloader \
+    || composer update --no-dev --prefer-dist --no-scripts --optimize-autoloader
 
-# Copy Supervisor configuration
-COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# --- Application source ------------------------------------------------------
+COPY . .
 
-# Copy application code
-COPY --chown=www-data:www-data . .
+# Provide a baseline .env (real App Platform env vars override these at runtime)
+# and ensure an APP_KEY exists so build-time artisan calls succeed.
+RUN { [ -f .env ] || cp docker.env .env; } \
+    && { grep -q "APP_KEY=base64:" .env || php artisan key:generate --force; }
 
-# Copy built assets from node stage
-COPY --from=node-builder --chown=www-data:www-data /app/public/build ./public/build
+# Finish Composer setup now that the whole app (incl. Modules) is present.
+RUN composer dump-autoload --no-dev --optimize \
+    && php artisan package:discover --ansi
 
-# Copy environment file from docker.env to .env if .env doesn't exist
-RUN if [ ! -f .env ]; then cp docker.env .env; fi
+# Pull in the compiled frontend bundle from the Node stage.
+COPY --from=assets /app/public/build ./public/build
 
-# Generate APP_KEY if not present (required for some Composer operations)
-RUN if ! grep -q "APP_KEY=base64:" .env; then \
-        php artisan key:generate --no-interaction || \
-        echo "APP_KEY=base64:$(openssl rand -base64 32)" >> .env; \
-    fi
+# Storage layout + permissions for the FrankenPHP user.
+RUN mkdir -p storage/framework/cache storage/framework/sessions \
+        storage/framework/views storage/logs bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache \
+    && chmod -R ug+rw storage bootstrap/cache
 
-# Create necessary directories before Composer install
-RUN mkdir -p storage/logs storage/framework/cache storage/framework/sessions storage/framework/views \
-    && mkdir -p bootstrap/cache
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint
+RUN chmod +x /usr/local/bin/entrypoint
 
-# Debug: Check Composer and PHP setup
-RUN composer --version && php --version
+# App Platform routes traffic to this port.
+ENV PORT=8080 \
+    OCTANE_SERVER=frankenphp \
+    OCTANE_WORKERS=auto \
+    OCTANE_MAX_REQUESTS=512
+EXPOSE 8080
 
-# Configure Composer
-ENV COMPOSER_ALLOW_SUPERUSER=1
-ENV COMPOSER_NO_INTERACTION=1
-ENV COMPOSER_MEMORY_LIMIT=2G
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=5 \
+    CMD curl -fsS "http://127.0.0.1:${PORT}/up" || exit 1
 
-# Configure composer to disable security audits for deployment
-RUN composer config audit.block-insecure false
-
-# Update composer.lock to match PHP version and install dependencies
-RUN composer update --lock --no-dev --optimize-autoloader --no-interaction --verbose
-
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 755 /var/www/html/storage \
-    && chmod -R 755 /var/www/html/bootstrap/cache
-
-# Create necessary directories
-RUN mkdir -p /var/www/html/storage/logs \
-    && mkdir -p /var/www/html/storage/framework/cache \
-    && mkdir -p /var/www/html/storage/framework/sessions \
-    && mkdir -p /var/www/html/storage/framework/views \
-    && mkdir -p /var/www/html/storage/app/public \
-    && mkdir -p /var/log/supervisor \
-    && mkdir -p /var/log/nginx \
-    && mkdir -p /var/run \
-    && chown -R www-data:www-data /var/www/html/storage
-
-# Fix Nginx temp directories permissions for file uploads
-RUN chown -R www-data:www-data /var/lib/nginx/ \
-&& chmod -R 755 /var/lib/nginx/tmp
-
-# Create storage symlink and test files
-RUN php artisan storage:link || echo "Storage link creation failed, but continuing..." \
-    && echo '<?php echo "Laravel Test: " . date("Y-m-d H:i:s") . "<br>PHP Version: " . phpversion(); ?>' > /var/www/html/public/test.php \
-    && echo 'healthy' > /var/www/html/public/health \
-    && echo '<?php echo "Installer should redirect to: /install/step-1<br>"; echo "Routes available: "; echo "<pre>"; print_r(glob("/var/www/html/Modules/*/routes/*.php")); echo "</pre>"; ?>' > /var/www/html/public/debug.php \
-    && chmod 644 /var/www/html/public/test.php /var/www/html/public/health /var/www/html/public/debug.php
-
-# Ensure the app is NOT marked as installed (for first-time setup)
-# RUN rm -f /var/www/html/public/installed
-
-# Clear any cached routes/config that might interfere with installation
-RUN php artisan config:clear || true \
-    && php artisan route:clear || true \
-    && php artisan view:clear || true
-
-# Expose ports
-EXPOSE 80
-
-# Health check (more lenient)
-HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=5 \
-    CMD curl -f http://localhost:80/health || curl -f http://localhost:80/test.php || exit 1
-
-# Start supervisor
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+ENTRYPOINT ["entrypoint"]
