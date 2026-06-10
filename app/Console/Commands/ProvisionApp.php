@@ -71,15 +71,22 @@ class ProvisionApp extends Command
             );
 
             if (! $admin->instructor_id) {
-                $instructor = Instructor::create([
-                    'user_id' => $admin->id,
-                    'status' => 'approved',
-                    'designation' => 'Administrator',
-                    'skills' => json_encode(['admin']),
-                    'biography' => 'Platform administrator.',
-                ]);
-                $admin->instructor_id = $instructor->id;
-                $admin->save();
+                try {
+                    $instructor = Instructor::create([
+                        'user_id' => $admin->id,
+                        'status' => 'approved',
+                        'designation' => 'Administrator',
+                        'skills' => ['admin'],            // cast to array on the model
+                        'biography' => 'Platform administrator.',
+                        'resume' => '',                   // NOT NULL, no default
+                    ]);
+                    $admin->instructor_id = $instructor->id;
+                    $admin->save();
+                } catch (\Throwable $e) {
+                    // Don't let an instructor-profile hiccup abort the rest of
+                    // provisioning (settings wiring below still needs to run).
+                    $this->warn('Instructor profile not created: '.$e->getMessage());
+                }
             }
 
             $this->info("Admin user ready: {$email}");
